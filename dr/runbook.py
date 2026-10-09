@@ -38,19 +38,145 @@ LOG = pathlib.Path("reports/runbook-run.jsonl")
 URL = {"a": "http://127.0.0.1:8001", "b": "http://127.0.0.1:8002"}
 
 
-def step(n, name, **kw):
-    """TODO: ghi 1 dòng {ts, iso, step, name, ...} vào LOG."""
-    raise NotImplementedError
+def step(n: int, name: str, **kw):
+    """Ghi 1 dòng {ts, iso, step, name, ...} vào LOG."""
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "ts": time.time(),
+        "iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
+        "step": n,
+        "name": name,
+        **kw,
+    }
+    with LOG.open("a") as f:
+        f.write(json.dumps(rec) + "\n")
+    print(f"RUNBOOK [Bước {n}: {name}]", json.dumps(rec))
+    return rec
 
 
 def confirm(auto: bool, msg: str) -> bool:
-    """TODO: auto=True -> True; ngược lại hỏi y/N. Đừng bỏ hàm này đi."""
-    raise NotImplementedError
+    """auto=True -> True; ngược lại hỏi y/N."""
+    if auto:
+        return True
+    try:
+        ans = input(f"{msg} [y/N]: ").strip().lower()
+        return ans in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 
 def run(primary: str, target: str, backend: str, auto: bool) -> dict:
-    """TODO: 7 bước ở trên."""
-    raise NotImplementedError
+    """Thực hiện 7 bước của runbook."""
+    # Bước 1: 1 xac_nhan_outage
+    prim_alive = False
+    try:
+        r = httpx.get(f"{URL[primary]}/healthz", timeout=1.5)
+        prim_alive = (r.status_code == 200)
+    except Exception:
+        prim_alive = False
+
+    t_step1 = step(1, "xac_nhan_outage", primary=primary, primary_alive=prim_alive, target=target)
+
+    # Bước 2: 2 thong_bao_incident
+    chaos_file = pathlib.Path("chaos/chaos-events.jsonl")
+    t_outage = None
+    if chaos_file.exists():
+        kills = [
+            json.loads(line)
+            for line in chaos_file.read_text().splitlines()
+            if line.strip()
+        ]
+        kill_events = [k for k in kills if k.get("action") == "kill"]
+        if kill_events:
+            t_outage = kill_events[-1].get("ts")
+
+    operator_ts = time.time()
+    notification_delay_s = round(operator_ts - t_outage, 2) if t_outage else None
+
+    if not confirm(auto, f"Outage phát hiện trên region-{primary}. Xác nhận failover sang region-{target}?"):
+        step(2, "thong_bao_incident", status="rejected_by_operator")
+        return {"ok": False, "aborted": True, "reason": "Operator declined failover"}
+
+    step(
+        2,
+        "thong_bao_incident",
+        t_outage=t_outage,
+        operator_alert_ts=operator_ts,
+        notification_delay_s=notification_delay_s,
+    )
+
+    # Bước 3: 3 scale_gpu_pool (gọi failover.failover DUY NHẤT 1 lần)
+    fo_res = fo.failover(target=target, backend=backend, wait=60.0)
+    step(3, "scale_gpu_pool", failover_result=fo_res)
+    if not fo_res.get("ok"):
+        return {"ok": False, "step": 3, "failover": fo_res}
+
+    # Bước 4: 4 verify_state_replica (chỉ đọc kết quả từ fo_res và state_of)
+    target_state = fo.state_of(target)
+    step(
+        4,
+        "verify_state_replica",
+        target=target,
+        target_state=target_state,
+        rpo_seconds=fo_res.get("rpo_seconds"),
+        docs_lost=fo_res.get("docs_lost"),
+        embed_model_version=fo_res.get("embed_model_version"),
+    )
+
+    # Bước 5: 5 dns_cutover (xác nhận trạng thái cutover)
+    active_path = pathlib.Path("edge/active_region")
+    active_now = active_path.read_text().strip() if active_path.exists() else "unknown"
+    cutover_ok = (active_now == target)
+    step(5, "dns_cutover", active_region=active_now, cutover_ok=cutover_ok)
+
+    # Bước 6: 6 verify_golden_signals (10 request thật vào region phụ)
+    latencies = []
+    errors = 0
+    with httpx.Client(timeout=3.0) as client:
+        for _ in range(10):
+            t_req = time.time()
+            try:
+                r = client.get(f"{URL[target]}/v1/infer", params={"q": "golden_signal_test"})
+                lat_ms = round((time.time() - t_req) * 1000, 1)
+                latencies.append(lat_ms)
+                if r.status_code != 200:
+                    errors += 1
+            except Exception:
+                errors += 1
+                latencies.append(3000.0)
+            time.sleep(0.05)
+
+    latencies.sort()
+    idx_p95 = min(len(latencies) - 1, int(len(latencies) * 0.95))
+    p95_ms = latencies[idx_p95] if latencies else None
+    error_rate = round(errors / 10.0, 2)
+    step(
+        6,
+        "verify_golden_signals",
+        p95_latency_ms=p95_ms,
+        error_rate=error_rate,
+        total_requests=10,
+        errors=errors,
+    )
+
+    # Bước 7: 7 post_incident
+    elapsed_total_s = round(time.time() - operator_ts, 2)
+    step(
+        7,
+        "post_incident",
+        elapsed_s=elapsed_total_s,
+        cmd_measure="python tools/measure_rto.py --loadgen reports/drill-2-withdr.jsonl --target-rto 300",
+    )
+
+    return {
+        "ok": True,
+        "target": target,
+        "rpo_seconds": fo_res.get("rpo_seconds"),
+        "docs_lost": fo_res.get("docs_lost"),
+        "p95_ms": p95_ms,
+        "error_rate": error_rate,
+        "elapsed_s": elapsed_total_s,
+    }
 
 
 if __name__ == "__main__":

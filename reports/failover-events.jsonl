@@ -1,0 +1,13 @@
+{"ts": 1791519465.7629611, "iso": "2026-10-09T04:17:45", "step": "1_verify_target", "target": "b", "state": {"region": "b", "pool_state": "full", "weights": true, "count": 261, "latest_doc_ts": 1791519199.15122, "ts": 1791519465.7611082}}
+{"ts": 1791519465.9928787, "iso": "2026-10-09T04:17:45", "step": "2_restore_snapshot", "target": "b", "backend": "fs", "rpo_seconds": 8.01, "docs_lost": 4, "embed_model_version": "embed-model=vi-e5-base@v3", "snapshot_at": 1791519457.3249366}
+{"ts": 1791519466.0040054, "iso": "2026-10-09T04:17:46", "step": "3_scale_pool", "target": "b", "pool_state": "full"}
+{"ts": 1791519466.2443116, "iso": "2026-10-09T04:17:46", "step": "4_wait_ready", "target": "b", "ready": true, "waited_s": 0.23}
+{"ts": 1791519466.2577264, "iso": "2026-10-09T04:17:46", "step": "5_dns_cutover", "target": "b", "active_region": "b"}
+{"ts": 1791519922.213907, "iso": "2026-10-09T04:25:22", "step": "1_verify_target", "target": "b", "state": {"region": "b", "pool_state": "warm"}}
+{"ts": 1791519922.2949805, "iso": "2026-10-09T04:25:22", "step": "2_restore_snapshot", "target": "b", "backend": "fs", "rpo_seconds": 118.76, "docs_lost": 58, "embed_model_version": "test", "snapshot_at": 1791519922.2216756}
+{"ts": 1791519922.3170538, "iso": "2026-10-09T04:25:22", "step": "3_scale_pool", "target": "b", "pool_state": "full"}
+{"ts": 1791519923.3314137, "iso": "2026-10-09T04:25:23", "step": "4_wait_ready", "target": "b", "ready": false, "waited_s": 1.0, "error": "timeout"}
+{"ts": 1791520035.7909567, "iso": "2026-10-09T04:27:15", "step": "1_verify_target", "target": "b", "state": {"region": "b", "pool_state": "warm"}}
+{"ts": 1791520035.8846872, "iso": "2026-10-09T04:27:15", "step": "2_restore_snapshot", "target": "b", "backend": "fs", "rpo_seconds": 118.76, "docs_lost": 58, "embed_model_version": "test", "snapshot_at": 1791520035.7948987}
+{"ts": 1791520035.901383, "iso": "2026-10-09T04:27:15", "step": "3_scale_pool", "target": "b", "pool_state": "full"}
+{"ts": 1791520036.910266, "iso": "2026-10-09T04:27:16", "step": "4_wait_ready", "target": "b", "ready": false, "waited_s": 1.0, "error": "timeout"}
